@@ -1,12 +1,17 @@
 from rest_framework import status
 from rest_framework.response import Response
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.authentication import TokenAuthentication
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.generics import ListAPIView
 
 from account.models import Account
 from blog.models import BlogPost
 from blog.api.serializers import BlogPostSerializer
 
 @api_view(['GET', ])
+@permission_classes((IsAuthenticated,))
 def api_detail_blog_view(request, slug):
 
     try:
@@ -19,6 +24,7 @@ def api_detail_blog_view(request, slug):
         return Response(serializers.data)
 
 @api_view(['PUT', ])
+@permission_classes((IsAuthenticated,))
 def api_update_blog_view(request, slug):
 
     try:
@@ -26,22 +32,31 @@ def api_update_blog_view(request, slug):
     except BlogPost.DoesNotExist:
         return Response(status=status.HTTP_404_NOT_FOUND)
 
+    user = request.user
+    if blog_post.author != user:
+        return Response({'response': "You don't have the permission to edit that."})
+
     if request.method == "PUT":
-        serializers = BlogPostSerializer(blog_post)
+        serializers = BlogPostSerializer(blog_post, data=request.data)
         data = {}
         if serializers.is_valid():
             serializers.save()
             data["success"] = "Successfully updated"
-            return Response(serializers.data)
+            return Response(data=data)
         return Response(serializers.errors, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['DELETE', ])
+@permission_classes((IsAuthenticated,))
 def api_delete_blog_view(request, slug):
 
     try:
         blog_post = BlogPost.objects.get(slug=slug)
     except BlogPost.DoesNotExist:
         return Response(status=status.HTTP_404_NOT_FOUND)
+
+    user = request.user
+    if blog_post.author != user:
+        return Response({'response': "You don't have the permission to delete that."})
 
     if request.method == "DELETE":
         operation = blog_post.delete()
@@ -53,13 +68,24 @@ def api_delete_blog_view(request, slug):
         return Response(data=data)
 
 @api_view(['POST',])
+@permission_classes((IsAuthenticated,))
 def api_create_blog_view(request):
-    account = Account.objects.get(pk=1)
+
+    account = request.user
 
     blog_post = BlogPost(author=account)
+
     if request.method == "POST":
         serializer = BlogPostSerializer(blog_post, data=request.data)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ApiBlogListView(ListAPIView):
+    queryset = BlogPost.objects.all()
+    serializer_class = BlogPostSerializer
+    authentication_classes = (TokenAuthentication,)
+    permission_classes = (IsAuthenticated,)
+    pagination_classes = PageNumberPagination
